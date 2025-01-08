@@ -21,8 +21,8 @@ This project implements a RESTful API using FastAPI with JWT authentication and 
 
 1. Clone the repository:
 ```bash
-git clone <repository-url>
-cd <repository-name>
+git clone [<repository-url>](https://github.com/i-sayankh/FastAPIAssignment)
+cd FastAPIAssignment
 ```
 
 2. Create and activate a virtual environment:
