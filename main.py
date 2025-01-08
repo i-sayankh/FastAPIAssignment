@@ -212,21 +212,30 @@ async def login(username: str, password: str):
 
 # Project Management Endpoints
 @app.get("/projects", response_model=List[ProjectResponse])
-async def get_projects(user: User = Depends(get_current_user)):
+async def get_projects(user: User = Depends(get_current_user),
+                       page: int = Query(1, ge=1, description="Page number (starting from 1)"),
+                       page_size: int = Query(10, ge=1, le=100, description="Number of items per page (1-10)"),):
     """
-    Retrieve all projects (accessible by all authenticated users).
+    Retrieve paginated projects (accessible by all authenticated users).
 
     Args:
         user: Current authenticated user
+        page: Page number for pagination
+        page_size: Number of items per page
 
     Returns:
-        List[ProjectResponse]: List of all projects
+        List[ProjectResponse]: List of paginated projects
 
     Raises:
         HTTPException: If retrieval fails due to server errors
     """
     try:
         projects = Project.objects()
+        total_projects = projects.count()
+        start = (page - 1) * page_size
+        end = start + page_size
+
+        paginated_projects = projects[start:end]
         return [
             ProjectResponse(
                 id=str(project.id),
@@ -234,7 +243,7 @@ async def get_projects(user: User = Depends(get_current_user)):
                 description=project.description,
                 created_at=project.created_at
             )
-            for project in projects
+            for project in paginated_projects
         ]
     except Exception as e:
         raise HTTPException(
