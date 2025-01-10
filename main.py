@@ -19,6 +19,7 @@ from models.schemas import (
     ProjectResponse,
     Token,
     UserRole,
+    ErrorResponses
 )
 from auth.jwt_handler import (
     get_password_hash,
@@ -99,10 +100,81 @@ def verify_admin(user: User = Depends(get_current_user)):
 @app.post("/register",
           response_model=UserResponse,
           responses={
-              201: {"description": "User successfully registered"},
-              400: {"description": "Bad Request"},
-              422: {"description": "Validation Error"},
-              500: {"description": "Internal Server Error"}
+              201: {
+                  "description": "User created successfully",
+                  "content": {
+                      "application/json": {
+                          "example": {
+                              "id": "507f1f77bcf86cd799439011",
+                              "username": "john_doe",
+                              "email": "john@example.com",
+                              "role": "user",
+                              "created_at": "2024-01-09T10:00:00"
+                          }
+                      }
+                  }
+              },
+              400: {
+                  "description": "Registration validation error",
+                  "content": {
+                      "application/json": {
+                          "examples": {
+                              "username_exists": {
+                                  "summary": "Username already taken",
+                                  "value": {"detail": ErrorResponses.USERNAME_EXISTS}
+                              },
+                              "invalid_username": {
+                                  "summary": "Invalid username format",
+                                  "value": {"detail": ErrorResponses.INVALID_USERNAME}
+                              },
+                              "weak_password": {
+                                  "summary": "Password too weak",
+                                  "value": {
+                                      "detail": ErrorResponses.WEAK_PASSWORD,
+                                      "requirements": {
+                                          "min_length": 8,
+                                          "must_contain": ["uppercase", "lowercase", "number", "special_char"]
+                                      }
+                                  }
+                              },
+                              "email_exists": {
+                                  "summary": "Email already registered",
+                                  "value": {"detail": ErrorResponses.EMAIL_EXISTS}
+                              },
+                              "invalid_email": {
+                                  "summary": "Invalid email format",
+                                  "value": {"detail": ErrorResponses.INVALID_EMAIL}
+                              }
+                          }
+                      }
+                  }
+              },
+              422: {
+                  "description": "Request validation error",
+                  "content": {
+                      "application/json": {
+                          "example": {
+                              "detail": [
+                                  {
+                                      "loc": ["body", "username"],
+                                      "msg": "field required",
+                                      "type": "value_error.missing"
+                                  }
+                              ]
+                          }
+                      }
+                  }
+              },
+              500: {
+                  "description": "Internal server error",
+                  "content": {
+                      "application/json": {
+                          "example": {
+                              "detail": "Internal server error occurred. Please try again later."
+                          }
+                      }
+                  }
+              }
           })
 async def register(user_data: UserCreate):
     """
@@ -154,7 +226,7 @@ async def register(user_data: UserCreate):
                 id=str(user.id),
                 username=user.username,
                 role=UserRole(user.role)
-            ).dict()
+            )
         )
     except Exception as e:
         raise HTTPException(
@@ -166,10 +238,57 @@ async def register(user_data: UserCreate):
 @app.post("/login",
           response_model=Token,
           responses={
-              200: {"description": "Successfully logged in"},
-              401: {"description": "Unauthorized"},
-              422: {"description": "Validation Error"},
-              500: {"description": "Internal Server Error"}
+              200: {
+                  "description": "Successfully logged in",
+                  "content": {
+                      "application/json": {
+                          "example": {
+                              "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                              "token_type": "bearer",
+                              "expires_in": 3600
+                          }
+                      }
+                  }
+              },
+              401: {
+                  "description": "Authentication failed",
+                  "content": {
+                      "application/json": {
+                          "examples": {
+                              "invalid_credentials": {
+                                  "summary": "Invalid credentials",
+                                  "value": {"detail": ErrorResponses.INVALID_CREDENTIALS}
+                              }
+                          }
+                      }
+                  }
+              },
+              422: {
+                  "description": "Request validation error",
+                  "content": {
+                      "application/json": {
+                          "example": {
+                              "detail": [
+                                  {
+                                      "loc": ["body", "username"],
+                                      "msg": "field required",
+                                      "type": "value_error.missing"
+                                  }
+                              ]
+                          }
+                      }
+                  }
+              },
+              500: {
+                  "description": "Internal server error",
+                  "content": {
+                      "application/json": {
+                          "example": {
+                              "detail": "Internal server error occurred. Please try again later."
+                          }
+                      }
+                  }
+              }
           })
 async def login(username: str, password: str):
     """
@@ -211,10 +330,54 @@ async def login(username: str, password: str):
 
 
 # Project Management Endpoints
-@app.get("/projects", response_model=List[ProjectResponse])
+@app.get("/projects/all", response_model=List[ProjectResponse],
+         responses={
+             200: {
+                 "description": "Successfully retrieved projects",
+                 "content": {
+                     "application/json": {
+                         "example": [{
+                             "id": "507f1f77bcf86cd799439011",
+                             "name": "Sample Project",
+                             "description": "Project description",
+                             "created_at": "2024-01-09T10:00:00"
+                         }]
+                     }
+                 }
+             },
+             403: {
+                 "description": "Authentication error",
+                 "content": {
+                     "application/json": {
+                         "examples": {
+                             "not_authenticated": {
+                                 "summary": "No authentication provided",
+                                 "value": {"detail": ErrorResponses.INSUFFICIENT_PERMISSIONS}
+                             },
+                             "token_expired": {
+                                 "summary": "Token expired",
+                                 "value": {"detail": ErrorResponses.TOKEN_EXPIRED}
+                             },
+                             "invalid_token": {
+                                 "summary": "Invalid token",
+                                 "value": {"detail": ErrorResponses.INVALID_TOKEN}
+                             }
+                         }
+                     }
+                 }
+             },
+             500: {
+                 "description": "Internal server error",
+                 "content": {
+                     "application/json": {
+                         "example": {"detail": ErrorResponses.SERVER_ERROR}
+                     }
+                 }
+             }
+         })
 async def get_projects(user: User = Depends(get_current_user),
                        page: int = Query(1, ge=1, description="Page number (starting from 1)"),
-                       page_size: int = Query(10, ge=1, le=100, description="Number of items per page (1-10)"),):
+                       page_size: int = Query(10, ge=1, le=100, description="Number of items per page (1-10)"), ):
     """
     Retrieve paginated projects (accessible by all authenticated users).
 
@@ -248,11 +411,148 @@ async def get_projects(user: User = Depends(get_current_user),
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error"
+            detail=ErrorResponses.SERVER_ERROR
         )
 
 
-@app.post("/projects", response_model=ProjectResponse)
+@app.get("/projects/{project_id}", response_model=ProjectResponse,
+         responses={
+             200: {
+                 "description": "Successfully retrieved project",
+                 "content": {
+                     "application/json": {
+                         "example": {
+                             "id": "507f1f77bcf86cd799439011",
+                             "name": "Project Name",
+                             "description": "Project description",
+                             "created_at": "2024-01-09T10:00:00"
+                         }
+                     }
+                 }
+             },
+             403: {
+                 "description": "Authentication error",
+                 "content": {
+                     "application/json": {
+                         "examples": {
+                             "not_authenticated": {
+                                 "summary": "No authentication provided",
+                                 "value": {"detail": ErrorResponses.NOT_AUTHENTICATED}
+                             },
+                             "token_expired": {
+                                 "summary": "Token expired",
+                                 "value": {"detail": ErrorResponses.TOKEN_EXPIRED}
+                             },
+                             "invalid_token": {
+                                 "summary": "Invalid token",
+                                 "value": {"detail": ErrorResponses.INVALID_TOKEN}
+                             }
+                         }
+                     }
+                 }
+             },
+             404: {
+                 "description": "Project not found",
+                 "content": {
+                     "application/json": {
+                         "example": {"detail": ErrorResponses.PROJECT_NOT_FOUND}
+                     }
+                 }
+             },
+             500: {
+                 "description": "Internal server error",
+                 "content": {
+                     "application/json": {
+                         "example": {"detail": ErrorResponses.SERVER_ERROR}
+                     }
+                 }
+             }
+         })
+async def get_project_by_id(project_id: str, user: User = Depends(get_current_user)):
+    """
+    Retrieve a specific project by ID.
+
+    Args:
+        project_id: ID of the project to retrieve
+        user: Current authenticated user
+
+    Returns:
+        ProjectResponse: Project information
+
+    Raises:
+        HTTPException: If project not found or server errors occur
+    """
+    try:
+        project = Project.objects(id=project_id).first()
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=ErrorResponses.PROJECT_NOT_FOUND
+            )
+
+        return ProjectResponse(
+            id=str(project.id),
+            name=project.name,
+            description=project.description,
+            created_at=project.created_at
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=ErrorResponses.SERVER_ERROR
+        )
+
+
+@app.post("/projects", response_model=ProjectResponse,
+          responses={
+              201: {
+                  "description": "Project created successfully",
+                  "content": {
+                      "application/json": {
+                          "example": {
+                              "id": "507f1f77bcf86cd799439011",
+                              "name": "New Project",
+                              "description": "Project description",
+                              "created_at": "2024-01-09T10:00:00"
+                          }
+                      }
+                  }
+              },
+              400: {
+                  "description": "Invalid request data",
+                  "content": {
+                      "application/json": {
+                          "example": {"detail": ErrorResponses.INVALID_DATA}
+                      }
+                  }
+              },
+              401: {
+                  "description": "Unauthorized access",
+                  "content": {
+                      "application/json": {
+                          "example": {"detail": ErrorResponses.INSUFFICIENT_PERMISSIONS}
+                      }
+                  }
+              },
+              403: {
+                  "description": "Forbidden - Not an admin",
+                  "content": {
+                      "application/json": {
+                          "example": {"detail": ErrorResponses.NOT_ADMIN}
+                      }
+                  }
+              },
+              500: {
+                  "description": "Internal server error",
+                  "content": {
+                      "application/json": {
+                          "example": {"detail": ErrorResponses.SERVER_ERROR}
+                      }
+                  }
+              }
+          })
 async def create_project(project_data: ProjectCreate, user: User = Depends(verify_admin)):
     """
     Create a new project (admin only).
@@ -272,7 +572,7 @@ async def create_project(project_data: ProjectCreate, user: User = Depends(verif
         if not project_data.name or not project_data.description:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Project name and description are required"
+                detail=ErrorResponses.INVALID_DATA
             )
 
         # Create and save project
@@ -294,11 +594,65 @@ async def create_project(project_data: ProjectCreate, user: User = Depends(verif
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error"
+            detail=ErrorResponses.SERVER_ERROR
         )
 
 
-@app.put("/projects/{project_id}", response_model=ProjectResponse)
+@app.put("/projects/{project_id}", response_model=ProjectResponse,
+         responses={
+             200: {
+                 "description": "Project updated successfully",
+                 "content": {"application/json": {
+                     "example": {
+                         "id": "507f1f77bcf86cd799439011",
+                         "name": "Updated Project",
+                         "description": "Updated description",
+                         "created_at": "2024-01-09T10:00:00"
+                     }
+                 }}
+             },
+             400: {
+                 "description": ErrorResponses.INVALID_DATA,
+                 "content": {"application/json": {
+                     "example": {"detail": ErrorResponses.INVALID_DATA}
+                 }}
+             },
+             401: {
+                 "description": ErrorResponses.NOT_AUTHENTICATED,
+                 "content": {"application/json": {
+                     "example": {"detail": ErrorResponses.NOT_AUTHENTICATED}
+                 }}
+             },
+             403: {
+                 "description": "Access forbidden",
+                 "content": {"application/json": {
+                     "examples": {
+                         "not_admin": {
+                             "summary": "User not admin",
+                             "value": {"detail": ErrorResponses.NOT_ADMIN}
+                         },
+                         "not_creator": {
+                             "summary": "Not project creator",
+                             "value": {"detail": ErrorResponses.NOT_CREATOR}
+                         }
+                     }
+                 }}
+             },
+             404: {
+                 "description": ErrorResponses.PROJECT_NOT_FOUND,
+                 "content": {"application/json": {
+                     "example": {"detail": ErrorResponses.PROJECT_NOT_FOUND}
+                 }}
+             },
+             500: {
+                 "description": "Internal server error",
+                 "content": {
+                     "application/json": {
+                         "example": {"detail": ErrorResponses.SERVER_ERROR}
+                     }
+                 }
+             }
+         })
 async def update_project(
         project_id: str,
         project_data: ProjectCreate,
@@ -322,7 +676,7 @@ async def update_project(
         if not project_data.name or not project_data.description:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Project name and description are required"
+                detail=ErrorResponses.INVALID_DATA
             )
 
         # Find and validate project
@@ -330,14 +684,21 @@ async def update_project(
         if not project:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Project not found"
+                detail=ErrorResponses.PROJECT_NOT_FOUND
+            )
+
+        # Verify Admin Status
+        if user.role != UserRole.ADMIN.value:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=ErrorResponses.NOT_ADMIN
             )
 
         # Verify creator permissions
         if project.created_by != user.username:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only creators are allowed to make changes"
+                detail=ErrorResponses.NOT_CREATOR
             )
 
         # Update project
@@ -360,7 +721,165 @@ async def update_project(
         )
 
 
-@app.delete("/projects/{project_id}")
+@app.patch("/projects/{project_id}", response_model=ProjectResponse,
+           responses={
+               200: {
+                   "description": "Project updated successfully",
+                   "content": {"application/json": {
+                       "example": {
+                           "id": "507f1f77bcf86cd799439011",
+                           "name": "Updated Project",
+                           "description": "Updated description",
+                           "created_at": "2024-01-09T10:00:00"
+                       }
+                   }}
+               },
+               400: {
+                   "description": ErrorResponses.INVALID_DATA,
+                   "content": {"application/json": {
+                       "example": {"detail": ErrorResponses.INVALID_DATA}
+                   }}
+               },
+               401: {
+                   "description": ErrorResponses.NOT_AUTHENTICATED,
+                   "content": {"application/json": {
+                       "example": {"detail": ErrorResponses.NOT_AUTHENTICATED}
+                   }}
+               },
+               403: {
+                   "description": "Access forbidden",
+                   "content": {"application/json": {
+                       "examples": {
+                           "not_admin": {
+                               "summary": "User not admin",
+                               "value": {"detail": ErrorResponses.NOT_ADMIN}
+                           },
+                           "not_creator": {
+                               "summary": "Not project creator",
+                               "value": {"detail": ErrorResponses.NOT_CREATOR}
+                           }
+                       }
+                   }}
+               },
+               404: {
+                   "description": ErrorResponses.PROJECT_NOT_FOUND,
+                   "content": {"application/json": {
+                       "example": {"detail": ErrorResponses.PROJECT_NOT_FOUND}}
+                   }
+               },
+               500: {
+                   "description": "Internal server error",
+                   "content": {
+                       "application/json": {
+                           "example": {"detail": ErrorResponses.SERVER_ERROR}
+                       }
+                   }
+               }
+           })
+async def partial_update_project(
+        project_id: str,
+        project_data: ProjectCreate,
+        user: User = Depends(verify_admin)
+):
+    """
+    Partially update an existing project (admin only).
+
+    Args:
+        project_id: ID of the project to update
+        project_data: ProjectCreate model containing updated information
+        user: Current authenticated admin user
+
+    Returns:
+        ProjectResponse: Updated project information
+
+    Raises:
+        HTTPException: If update fails due to validation, permissions, or server errors
+    """
+    try:
+        project = Project.objects(id=project_id).first()
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=ErrorResponses.PROJECT_NOT_FOUND
+            )
+
+        if user.role != UserRole.ADMIN.value:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=ErrorResponses.NOT_ADMIN
+            )
+
+        if project.created_by != user.username:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=ErrorResponses.NOT_CREATOR
+            )
+
+        if project_data.name:
+            project.name = project_data.name
+        if project_data.description:
+            project.description = project_data.description
+
+        project.save()
+
+        return ProjectResponse(
+            id=str(project.id),
+            name=project.name,
+            description=project.description,
+            created_at=project.created_at
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=ErrorResponses.SERVER_ERROR
+        )
+
+
+@app.delete("/projects/{project_id}",
+            responses={
+                200: {
+                    "description": "Project deleted successfully",
+                    "content": {
+                        "application/json": {
+                            "example": {"message": "Project deleted successfully"}
+                        }
+                    }
+                },
+                401: {
+                    "description": "Unauthorized access",
+                    "content": {
+                        "application/json": {
+                            "example": {"detail": ErrorResponses.INSUFFICIENT_PERMISSIONS}
+                        }
+                    }
+                },
+                403: {
+                    "description": "Forbidden - Not an admin",
+                    "content": {
+                        "application/json": {
+                            "example": {"detail": ErrorResponses.NOT_ADMIN}
+                        }
+                    }
+                },
+                404: {
+                    "description": "Project not found",
+                    "content": {
+                        "application/json": {
+                            "example": {"detail": ErrorResponses.PROJECT_NOT_FOUND}
+                        }
+                    }
+                },
+                500: {
+                    "description": "Internal server error",
+                    "content": {
+                        "application/json": {
+                            "example": {"detail": ErrorResponses.SERVER_ERROR}
+                        }
+                    }
+                }
+            })
 async def delete_project(project_id: str, user: User = Depends(verify_admin)):
     """
     Delete an existing project (admin only).
@@ -381,7 +900,7 @@ async def delete_project(project_id: str, user: User = Depends(verify_admin)):
         if not project:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Project not found"
+                detail=ErrorResponses.PROJECT_NOT_FOUND
             )
 
         # Delete project
@@ -392,7 +911,7 @@ async def delete_project(project_id: str, user: User = Depends(verify_admin)):
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error"
+            detail=ErrorResponses.SERVER_ERROR
         )
 
 
