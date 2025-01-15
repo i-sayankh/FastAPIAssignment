@@ -27,8 +27,8 @@ class UserResponse(UserBase):
 
 
 class ProjectBase(BaseModel):
-    name: str
-    description: str
+    name: str | None = None
+    description: str | None = None
 
 
 class ProjectCreate(ProjectBase):
@@ -55,8 +55,6 @@ class ErrorResponses(str, Enum):
 
     # Login Errors
     INVALID_CREDENTIALS = "Invalid username or password"
-    ACCOUNT_LOCKED = "Account temporarily locked due to multiple failed attempts"
-    ACCOUNT_INACTIVE = "Account is not activated"
 
     # Authentication Errors
     NOT_AUTHENTICATED = "Authentication required. Please log in to access this resource."

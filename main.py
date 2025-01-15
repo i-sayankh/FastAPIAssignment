@@ -1,12 +1,14 @@
 # Standard library imports
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException, status, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from mongoengine import connect, disconnect
 from datetime import timedelta
 from typing import List
 import json
-from bson import json_util
+from bson import json_util, ObjectId
 from starlette.responses import JSONResponse
+import uuid
 
 # Local application imports
 from config import MONGODB_URL, ACCESS_TOKEN_EXPIRE_MINUTES
@@ -28,8 +30,24 @@ from auth.jwt_handler import (
     decode_token,
 )
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Lifespan context manager for handling application startup and shutdown events.
+
+    Args:
+        app: FastAPI application instance
+    """
+    # Startup operations (if any) go here
+    yield
+
+    # Shutdown operations
+    disconnect()
+
+
 # Initialize FastAPI application with title
-app = FastAPI(title="FastAPI JWT RBAC")
+app = FastAPI(title="FastAPI JWT RBAC", lifespan=lifespan)
 security = HTTPBearer()
 
 # Establish MongoDB connection
@@ -94,6 +112,16 @@ def verify_admin(user: User = Depends(get_current_user)):
             detail="Not authorized to perform this action"
         )
     return user
+
+
+def validate_uuid(project_id: str):
+    try:
+        uuid_obj = uuid.UUID(project_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invalid project ID format, Project Not Found"
+        )
 
 
 # API Endpoints
@@ -330,91 +358,6 @@ async def login(username: str, password: str):
 
 
 # Project Management Endpoints
-@app.get("/projects/all", response_model=List[ProjectResponse],
-         responses={
-             200: {
-                 "description": "Successfully retrieved projects",
-                 "content": {
-                     "application/json": {
-                         "example": [{
-                             "id": "507f1f77bcf86cd799439011",
-                             "name": "Sample Project",
-                             "description": "Project description",
-                             "created_at": "2024-01-09T10:00:00"
-                         }]
-                     }
-                 }
-             },
-             403: {
-                 "description": "Authentication error",
-                 "content": {
-                     "application/json": {
-                         "examples": {
-                             "not_authenticated": {
-                                 "summary": "No authentication provided",
-                                 "value": {"detail": ErrorResponses.INSUFFICIENT_PERMISSIONS}
-                             },
-                             "token_expired": {
-                                 "summary": "Token expired",
-                                 "value": {"detail": ErrorResponses.TOKEN_EXPIRED}
-                             },
-                             "invalid_token": {
-                                 "summary": "Invalid token",
-                                 "value": {"detail": ErrorResponses.INVALID_TOKEN}
-                             }
-                         }
-                     }
-                 }
-             },
-             500: {
-                 "description": "Internal server error",
-                 "content": {
-                     "application/json": {
-                         "example": {"detail": ErrorResponses.SERVER_ERROR}
-                     }
-                 }
-             }
-         })
-async def get_projects(user: User = Depends(get_current_user),
-                       page: int = Query(1, ge=1, description="Page number (starting from 1)"),
-                       page_size: int = Query(10, ge=1, le=100, description="Number of items per page (1-10)"), ):
-    """
-    Retrieve paginated projects (accessible by all authenticated users).
-
-    Args:
-        user: Current authenticated user
-        page: Page number for pagination
-        page_size: Number of items per page
-
-    Returns:
-        List[ProjectResponse]: List of paginated projects
-
-    Raises:
-        HTTPException: If retrieval fails due to server errors
-    """
-    try:
-        projects = Project.objects()
-        total_projects = projects.count()
-        start = (page - 1) * page_size
-        end = start + page_size
-
-        paginated_projects = projects[start:end]
-        return [
-            ProjectResponse(
-                id=str(project.id),
-                name=project.name,
-                description=project.description,
-                created_at=project.created_at
-            )
-            for project in paginated_projects
-        ]
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=ErrorResponses.SERVER_ERROR
-        )
-
-
 @app.get("/projects/{project_id}", response_model=ProjectResponse,
          responses={
              200: {
@@ -422,7 +365,7 @@ async def get_projects(user: User = Depends(get_current_user),
                  "content": {
                      "application/json": {
                          "example": {
-                             "id": "507f1f77bcf86cd799439011",
+                             "id": "507f1f77bcf86cd799439011",  # Example UUID
                              "name": "Project Name",
                              "description": "Project description",
                              "created_at": "2024-01-09T10:00:00"
@@ -473,7 +416,7 @@ async def get_project_by_id(project_id: str, user: User = Depends(get_current_us
     Retrieve a specific project by ID.
 
     Args:
-        project_id: ID of the project to retrieve
+        project_id: ID of the project to retrieve (UUID)
         user: Current authenticated user
 
     Returns:
@@ -482,8 +425,10 @@ async def get_project_by_id(project_id: str, user: User = Depends(get_current_us
     Raises:
         HTTPException: If project not found or server errors occur
     """
+    # Validate project_id format (UUID)
+    validate_uuid(project_id)  # You may want to rename this function to validate_uuid if necessary
     try:
-        project = Project.objects(id=project_id).first()
+        project = Project.objects(_id=project_id).first()  # Query using _id (UUID)
         if not project:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -491,11 +436,116 @@ async def get_project_by_id(project_id: str, user: User = Depends(get_current_us
             )
 
         return ProjectResponse(
-            id=str(project.id),
+            id=str(project._id),  # Use _id here
             name=project.name,
             description=project.description,
             created_at=project.created_at
         )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=ErrorResponses.SERVER_ERROR
+        )
+
+@app.get("/projects", response_model=List[ProjectResponse],
+         responses={
+             200: {
+                 "description": "Successfully retrieved projects",
+                 "content": {
+                     "application/json": {
+                         "example": [{
+                             "id": "507f1f77bcf86cd799439011",
+                             "name": "Sample Project",
+                             "description": "Project description",
+                             "created_at": "2024-01-09T10:00:00"
+                         }]
+                     }
+                 }
+             },
+             403: {
+                 "description": "Authentication error",
+                 "content": {
+                     "application/json": {
+                         "examples": {
+                             "not_authenticated": {
+                                 "summary": "No authentication provided",
+                                 "value": {"detail": ErrorResponses.INSUFFICIENT_PERMISSIONS}
+                             },
+                             "token_expired": {
+                                 "summary": "Token expired",
+                                 "value": {"detail": ErrorResponses.TOKEN_EXPIRED}
+                             },
+                             "invalid_token": {
+                                 "summary": "Invalid token",
+                                 "value": {"detail": ErrorResponses.INVALID_TOKEN}
+                             }
+                         }
+                     }
+                 }
+             },
+             404: {
+                 "description": "Project not found",
+                 "content": {
+                     "application/json": {
+                         "example": {"detail": ErrorResponses.PROJECT_NOT_FOUND}
+                     }
+                 }
+             },
+             500: {
+                 "description": "Internal server error",
+                 "content": {
+                     "application/json": {
+                         "example": {"detail": ErrorResponses.SERVER_ERROR}
+                     }
+                 }
+             }
+         })
+async def get_projects(user: User = Depends(get_current_user),
+                       page: int = Query(1, ge=1, description="Page number (starting from 1)"),
+                       page_size: int = Query(10, ge=1, le=100, description="Number of items per page (1-10)")):
+    """
+    Retrieve paginated projects (accessible by all authenticated users).
+
+    Args:
+        user: Current authenticated user
+        page: Page number for pagination
+        page_size: Number of items per page
+
+    Returns:
+        List[ProjectResponse]: List of paginated projects
+
+    Raises:
+        HTTPException: If retrieval fails due to server errors
+    """
+    try:
+        # Validate user authentication
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=ErrorResponses.INSUFFICIENT_PERMISSIONS
+            )
+
+        # Get projects
+        projects = Project.objects()  # Retrieve all projects
+        total_projects = projects.count()
+        start = (page - 1) * page_size
+        end = start + page_size
+
+        # Handle pagination
+        paginated_projects = projects[start:end]
+        
+        # Return formatted response
+        return [
+            ProjectResponse(
+                id=str(project._id),  # Using _id instead of id based on Project model
+                name=project.name,
+                description=project.description,
+                created_at=project.created_at
+            )
+            for project in paginated_projects
+        ]
     except HTTPException:
         raise
     except Exception as e:
@@ -554,19 +604,6 @@ async def get_project_by_id(project_id: str, user: User = Depends(get_current_us
               }
           })
 async def create_project(project_data: ProjectCreate, user: User = Depends(verify_admin)):
-    """
-    Create a new project (admin only).
-
-    Args:
-        project_data: ProjectCreate model containing project information
-        user: Current authenticated admin user
-
-    Returns:
-        ProjectResponse: Created project information
-
-    Raises:
-        HTTPException: If creation fails due to validation or server errors
-    """
     try:
         # Validate project data
         if not project_data.name or not project_data.description:
@@ -575,16 +612,21 @@ async def create_project(project_data: ProjectCreate, user: User = Depends(verif
                 detail=ErrorResponses.INVALID_DATA
             )
 
+        # Generate UUID
+        project_id = str(uuid.uuid4())
+
         # Create and save project
         project = Project(
+            _id=project_id,
             name=project_data.name,
             description=project_data.description,
             created_by=user.username
         )
         project.save()
 
+        # Return using _id instead of id
         return ProjectResponse(
-            id=str(project.id),
+            id=project._id,  # Use _id here
             name=project.name,
             description=project.description,
             created_at=project.created_at
@@ -592,6 +634,7 @@ async def create_project(project_data: ProjectCreate, user: User = Depends(verif
     except HTTPException:
         raise
     except Exception as e:
+        print(f"Error creating project: {str(e)}")  # Add logging for debugging
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=ErrorResponses.SERVER_ERROR
@@ -680,7 +723,7 @@ async def update_project(
             )
 
         # Find and validate project
-        project = Project.objects(id=project_id).first()
+        project = Project.objects(_id=project_id).first()
         if not project:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -717,7 +760,7 @@ async def update_project(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error"
+            detail=ErrorResponses.SERVER_ERROR
         )
 
 
@@ -796,7 +839,7 @@ async def partial_update_project(
         HTTPException: If update fails due to validation, permissions, or server errors
     """
     try:
-        project = Project.objects(id=project_id).first()
+        project = Project.objects(_id=project_id).first()
         if not project:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -823,7 +866,7 @@ async def partial_update_project(
         project.save()
 
         return ProjectResponse(
-            id=str(project.id),
+            id=str(project._id),
             name=project.name,
             description=project.description,
             created_at=project.created_at
@@ -896,7 +939,7 @@ async def delete_project(project_id: str, user: User = Depends(verify_admin)):
     """
     try:
         # Find and validate project
-        project = Project.objects(id=project_id).first()
+        project = Project.objects(_id=project_id).first()
         if not project:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -913,15 +956,6 @@ async def delete_project(project_id: str, user: User = Depends(verify_admin)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=ErrorResponses.SERVER_ERROR
         )
-
-
-# Shutdown Event Handler
-@app.on_event("shutdown")
-def shutdown_event():
-    """
-    Disconnect from MongoDB when the application shuts down.
-    """
-    disconnect()
 
 
 # Main entry point
