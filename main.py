@@ -54,7 +54,7 @@ security = HTTPBearer()
 connect(host=MONGODB_URL)
 
 
-# Helper Functions
+# Helper Functions --
 def parse_json(data):
     """
     Convert MongoDB document to JSON-compatible dictionary.
